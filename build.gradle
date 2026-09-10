@@ -2,6 +2,7 @@ plugins {
     id 'org.springframework.boot' version '2.7.18'
     id 'io.spring.dependency-management' version '1.0.15.RELEASE'
     id 'java'
+    id 'jacoco'
 }
 
 group = 'com.example'
@@ -28,11 +29,11 @@ dependencies {
 
     runtimeOnly 'org.postgresql:postgresql'
 
-    // API-level tests only (no unit tests). Postgres + ActiveMQ come from Docker
-    // (docker-compose), S3 is mocked with Testcontainers LocalStack.
-    testImplementation('org.springframework.boot:spring-boot-starter-test') {
-        exclude group: 'org.mockito'
-    }
+    // Unit tests: JUnit 5 + Mockito (mockito-inline for static mocking of the
+    // SpringApplication bootstrap). Integration tests (*IT): Testcontainers for
+    // PostgreSQL, ActiveMQ and S3 (LocalStack) - see integrationTest task below.
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.mockito:mockito-inline:4.5.1'
     testImplementation platform('org.testcontainers:testcontainers-bom:1.21.3')
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
@@ -40,13 +41,61 @@ dependencies {
     testImplementation "com.amazonaws:aws-java-sdk-core:${awsSdkVersion}"
 }
 
+// Integration tests are any *IT class; unit tests are everything else. They share
+// src/test but run in separate Gradle tasks so `test` (and the JaCoCo coverage it
+// feeds) stays a fast, Docker-free unit run.
+def integrationTestPattern = '**/*IT.class'
+
 tasks.named('test') {
     useJUnitPlatform()
+    exclude integrationTestPattern
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat = 'full'
+    }
+    finalizedBy 'jacocoTestReport'
+}
+
+tasks.register('integrationTest', Test) {
+    description = 'Runs *IT integration tests against Testcontainers-managed infrastructure.'
+    group = 'verification'
+    useJUnitPlatform()
+    include integrationTestPattern
+    shouldRunAfter tasks.named('test')
     testLogging {
         events 'passed', 'skipped', 'failed'
         exceptionFormat = 'full'
     }
     // Recent dockerd (API >= 1.40) rejects docker-java's default negotiation version.
-    // Pin a modern-but-widely-supported API version for the Testcontainers client.
     environment 'DOCKER_API_VERSION', System.getenv().getOrDefault('DOCKER_API_VERSION', '1.44')
+}
+
+tasks.named('check') {
+    dependsOn 'integrationTest', 'jacocoTestCoverageVerification'
+}
+
+jacoco {
+    toolVersion = '0.8.11'
+}
+
+tasks.named('jacocoTestReport') {
+    dependsOn 'test'
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+tasks.named('jacocoTestCoverageVerification') {
+    dependsOn 'test'
+    violationRules {
+        rule {
+            // Unit tests are expected to cover the whole codebase.
+            limit { counter = 'INSTRUCTION'; minimum = 1.0 }
+            limit { counter = 'LINE'; minimum = 1.0 }
+            limit { counter = 'BRANCH'; minimum = 1.0 }
+            limit { counter = 'METHOD'; minimum = 1.0 }
+            limit { counter = 'CLASS'; minimum = 1.0 }
+        }
+    }
 }

@@ -21,8 +21,10 @@ Java 11 is required. `gradle.properties` points `org.gradle.java.home` at a
 local Temurin 11 install; adjust or remove it if your `JAVA_HOME` is already 11.
 
 ```
-./gradlew clean build          # compiles; runs the API test (needs Docker)
-./gradlew compileJava compileTestJava   # compile only, no Docker
+./gradlew test                 # unit tests only - fast, no Docker
+./gradlew integrationTest      # *IT tests - needs Docker
+./gradlew clean build          # unit + integration + coverage gate
+./gradlew compileJava compileTestJava   # compile only
 ```
 
 ## Run locally
@@ -75,15 +77,20 @@ curl -sS -X DELETE -i http://localhost:8080/api/documents/<id>
 
 ## Testing
 
-`src/test/java/.../DocumentApiIT.java` is the only test — no unit tests. It
-drives the full CRUD lifecycle over HTTP with `TestRestTemplate`, using:
+**Unit tests** (`*Test`, `./gradlew test`) — pure JUnit 5 + Mockito, no Spring
+context, no Docker. JaCoCo enforces 100% coverage (`jacocoTestCoverageVerification`,
+report at `build/reports/jacoco/test/html/index.html`).
 
-- **Docker** (`docker-compose.yml`) for PostgreSQL and ActiveMQ, started by
-  Testcontainers' `DockerComposeContainer`.
-- **Testcontainers LocalStack** as the S3 mock.
+**Integration tests** (`*IT`, `./gradlew integrationTest`) — need a Docker daemon
+reachable by the current user:
 
-```
-./gradlew test
-```
+- `DocumentApiIT` drives the full CRUD lifecycle over HTTP with `TestRestTemplate`
+  against PostgreSQL, ActiveMQ and S3 (LocalStack), each in its own throwaway
+  Testcontainers container, and asserts the emitted ActiveMQ events.
+- `DocumentRepositoryIT` is a `@DataJpaTest` persistence slice against real
+  PostgreSQL.
 
-Requires a working Docker daemon reachable by the current user.
+The database is never polluted: every integration test runs against a fresh
+throwaway PostgreSQL container that is destroyed afterwards; `DocumentApiIT` also
+clears the table and S3 bucket after each test, and `DocumentRepositoryIT` rolls
+back every transaction.
