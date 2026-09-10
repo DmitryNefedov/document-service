@@ -1,0 +1,47 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: document-service
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/documents}
+    username: ${SPRING_DATASOURCE_USERNAME:documents}
+    password: ${SPRING_DATASOURCE_PASSWORD:documents}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate.jdbc.time_zone: UTC
+      hibernate.jdbc.lob.non_contextual_creation: true
+
+  activemq:
+    broker-url: ${SPRING_ACTIVEMQ_BROKER_URL:tcp://localhost:61616}
+    user: ${SPRING_ACTIVEMQ_USER:admin}
+    password: ${SPRING_ACTIVEMQ_PASSWORD:admin}
+    in-memory: false
+    non-blocking-redelivery: true
+    packages:
+      trust-all: true
+
+  servlet:
+    multipart:
+      max-file-size: 25MB
+      max-request-size: 30MB
+
+app:
+  s3:
+    endpoint: ${APP_S3_ENDPOINT:}
+    region: ${APP_S3_REGION:us-east-1}
+    bucket: ${APP_S3_BUCKET:documents}
+    access-key: ${APP_S3_ACCESS_KEY:}
+    secret-key: ${APP_S3_SECRET_KEY:}
+  messaging:
+    document-events-queue: ${APP_DOCUMENT_EVENTS_QUEUE:document-events}
+
+logging:
+  level:
+    com.example.documentservice: INFO

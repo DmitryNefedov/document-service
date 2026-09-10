@@ -1,0 +1,52 @@
+plugins {
+    id 'org.springframework.boot' version '2.7.18'
+    id 'io.spring.dependency-management' version '1.0.15.RELEASE'
+    id 'java'
+}
+
+group = 'com.example'
+version = '0.0.1-SNAPSHOT'
+sourceCompatibility = '11'
+targetCompatibility = '11'
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    awsSdkVersion = '1.12.772'
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-activemq'
+
+    // AWS Java SDK v1
+    implementation "com.amazonaws:aws-java-sdk-s3:${awsSdkVersion}"
+
+    runtimeOnly 'org.postgresql:postgresql'
+
+    // API-level tests only (no unit tests). Postgres + ActiveMQ come from Docker
+    // (docker-compose), S3 is mocked with Testcontainers LocalStack.
+    testImplementation('org.springframework.boot:spring-boot-starter-test') {
+        exclude group: 'org.mockito'
+    }
+    testImplementation platform('org.testcontainers:testcontainers-bom:1.21.3')
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
+    testImplementation 'org.testcontainers:localstack'
+    testImplementation "com.amazonaws:aws-java-sdk-core:${awsSdkVersion}"
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat = 'full'
+    }
+    // Recent dockerd (API >= 1.40) rejects docker-java's default negotiation version.
+    // Pin a modern-but-widely-supported API version for the Testcontainers client.
+    environment 'DOCKER_API_VERSION', System.getenv().getOrDefault('DOCKER_API_VERSION', '1.44')
+}
