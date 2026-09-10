@@ -23,7 +23,8 @@ local Temurin 11 install; adjust or remove it if your `JAVA_HOME` is already 11.
 ```
 ./gradlew test                 # unit tests only - fast, no Docker
 ./gradlew integrationTest      # *IT tests - needs Docker
-./gradlew clean build          # unit + integration + coverage gate
+./gradlew pitest               # mutation testing (unit tests), no Docker
+./gradlew clean build          # unit + integration + coverage + mutation gates
 ./gradlew compileJava compileTestJava   # compile only
 ```
 
@@ -80,6 +81,13 @@ curl -sS -X DELETE -i http://localhost:8080/api/documents/<id>
 **Unit tests** (`*Test`, `./gradlew test`) — pure JUnit 5 + Mockito, no Spring
 context, no Docker. JaCoCo enforces 100% coverage (`jacocoTestCoverageVerification`,
 report at `build/reports/jacoco/test/html/index.html`).
+
+**Mutation testing** (`./gradlew pitest`) — PIT drives the unit tests against
+deliberately faulted copies of the production code. Following Robert C. Martin's
+argument in *Clean Craftsmanship* (line coverage only proves code *ran*; the tests
+must actually *detect* the fault), the build fails below **100% mutation kill
+rate** with the `STRONGER` operator set. Report at
+`build/reports/pitest/index.html`.
 
 **Integration tests** (`*IT`, `./gradlew integrationTest`) — need a Docker daemon
 reachable by the current user:

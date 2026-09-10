@@ -25,6 +25,7 @@ class DocumentResponseTest {
         Instant updatedAt = Instant.parse("2026-01-02T03:09:05Z");
         ReflectionTestUtils.setField(doc, "createdAt", createdAt);
         ReflectionTestUtils.setField(doc, "updatedAt", updatedAt);
+        ReflectionTestUtils.setField(doc, "version", 7L);
 
         DocumentResponse response = DocumentResponse.from(doc);
 
@@ -36,7 +37,7 @@ class DocumentResponseTest {
         assertThat(response.getStorageKey()).isEqualTo("documents/id/name.pdf");
         assertThat(response.getCreatedAt()).isEqualTo(createdAt);
         assertThat(response.getUpdatedAt()).isEqualTo(updatedAt);
-        assertThat(response.getVersion()).isEqualTo(doc.getVersion());
+        assertThat(response.getVersion()).isEqualTo(7L);
     }
 
     @Test

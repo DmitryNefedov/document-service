@@ -112,6 +112,7 @@ class DocumentServiceTest {
 
         DocumentResponse response = service.create("My name", "desc", file);
 
+        assertThat(response.getId()).isNotNull();
         assertThat(response.getName()).isEqualTo("My name");
         assertThat(response.getDescription()).isEqualTo("desc");
         assertThat(response.getContentType()).isEqualTo("text/plain");
@@ -207,6 +208,9 @@ class DocumentServiceTest {
 
         assertThat(response.getName()).isEqualTo("keep");
         assertThat(response.getDescription()).isEmpty();
+        assertThat(response.getStorageKey()).isEqualTo("k");
+        verify(storage, never()).delete(anyString());
+        verify(storage, never()).put(anyString(), any(), any());
     }
 
     @Test

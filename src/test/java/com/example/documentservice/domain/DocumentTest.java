@@ -1,6 +1,7 @@
 package com.example.documentservice.domain;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -30,6 +31,15 @@ class DocumentTest {
         assertThat(doc.getVersion()).isZero();
         assertThat(doc.getCreatedAt()).isNull();
         assertThat(doc.getUpdatedAt()).isNull();
+    }
+
+    @Test
+    void versionReflectsTheOptimisticLockValue() {
+        Document doc = new Document();
+
+        ReflectionTestUtils.setField(doc, "version", 7L);
+
+        assertThat(doc.getVersion()).isEqualTo(7L);
     }
 
     @Test

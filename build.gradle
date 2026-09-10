@@ -3,6 +3,7 @@ plugins {
     id 'io.spring.dependency-management' version '1.0.15.RELEASE'
     id 'java'
     id 'jacoco'
+    id 'info.solidsoft.pitest' version '1.15.0'
 }
 
 group = 'com.example'
@@ -71,7 +72,36 @@ tasks.register('integrationTest', Test) {
 }
 
 tasks.named('check') {
-    dependsOn 'integrationTest', 'jacocoTestCoverageVerification'
+    dependsOn 'integrationTest', 'jacocoTestCoverageVerification', 'pitest'
+}
+
+// Mutation testing (PIT). Following Robert C. Martin's guidance in
+// "Clean Craftsmanship": line coverage only proves code ran, so we also require
+// that the unit tests actually *detect* deliberate faults - every injected mutant
+// must be killed. The build fails below 100% mutation coverage.
+pitest {
+    pitestVersion = '1.15.0'
+    junit5PluginVersion = '1.2.1'
+
+    // Mutate production code only; drive it with the fast unit tests (*Test),
+    // never the Docker-backed integration tests (*IT).
+    targetClasses = ['com.example.documentservice.*']
+    targetTests = ['com.example.documentservice.*Test']
+    excludedTestClasses = ['com.example.documentservice.*IT']
+
+    // A thorough mutation operator set (DEFAULTS plus return-value, negation,
+    // increment, conditional-boundary and void-call-removal families).
+    mutators = ['STRONGER']
+
+    threads = Runtime.runtime.availableProcessors()
+    timestampedReports = false
+    outputFormats = ['HTML', 'XML']
+    exportLineCoverage = true
+
+    // "Aim for 100%." - fail the build on any surviving mutant or coverage gap.
+    mutationThreshold = 100
+    coverageThreshold = 100
+    testStrengthThreshold = 100
 }
 
 jacoco {
