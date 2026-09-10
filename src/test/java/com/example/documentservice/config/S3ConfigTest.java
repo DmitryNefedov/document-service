@@ -1,20 +1,20 @@
 package com.example.documentservice.config;
 
-import com.amazonaws.services.s3.AmazonS3;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.identity.spi.AwsCredentialsIdentity;
+import software.amazon.awssdk.identity.spi.IdentityProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import java.net.URL;
-import java.util.Date;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class S3ConfigTest {
 
     private final S3Config config = new S3Config();
-
-    private static Date inOneHour() {
-        return new Date(System.currentTimeMillis() + 3_600_000L);
-    }
 
     @Test
     void customEndpointUsesPathStyleAccessAndAppliesStaticCredentials() {
@@ -25,15 +25,16 @@ class S3ConfigTest {
         props.setAccessKey("AKIAENDPOINTTESTKEY");
         props.setSecretKey("endpoint-secret");
 
-        AmazonS3 client = config.amazonS3(props);
+        S3Client client = config.s3Client(props);
 
-        URL url = client.getUrl("documents", "documents/a/b.txt");
+        // Path-style access: bucket stays in the path, not the host.
+        URL url = client.utilities().getUrl(b -> b.bucket("documents").key("documents/a/b.txt"));
         assertThat(url.getHost()).isEqualTo("localhost");
         assertThat(url.getPort()).isEqualTo(4566);
         assertThat(url.getPath()).isEqualTo("/documents/documents/a/b.txt");
-        // Presigning forces the configured credentials to be resolved and signed in.
-        assertThat(client.generatePresignedUrl("documents", "k", inOneHour()).toString())
-                .contains("AKIAENDPOINTTESTKEY");
+        assertThat(client.serviceClientConfiguration().endpointOverride())
+                .contains(java.net.URI.create("http://localhost:4566"));
+        assertThat(resolvedAccessKey(client)).isEqualTo("AKIAENDPOINTTESTKEY");
     }
 
     @Test
@@ -42,9 +43,12 @@ class S3ConfigTest {
         props.setEndpoint("http://minio.local:9000");
         props.setRegion("us-east-1");
 
-        AmazonS3 client = config.amazonS3(props);
+        S3Client client = config.s3Client(props);
 
-        assertThat(client.getUrl("b", "k").getHost()).isEqualTo("minio.local");
+        URL url = client.utilities().getUrl(b -> b.bucket("b").key("k"));
+        assertThat(url.getHost()).isEqualTo("minio.local");
+        assertThat(client.serviceClientConfiguration().credentialsProvider())
+                .isNotInstanceOf(StaticCredentialsProvider.class);
     }
 
     @Test
@@ -54,12 +58,13 @@ class S3ConfigTest {
         props.setAccessKey("AKIAREGIONTESTKEY");
         props.setSecretKey("region-secret");
 
-        AmazonS3 client = config.amazonS3(props);
+        S3Client client = config.s3Client(props);
 
-        assertThat(client.getRegionName()).isEqualTo("eu-west-1");
-        assertThat(client.getUrl("b", "k").getHost()).contains("eu-west-1.amazonaws.com");
-        assertThat(client.generatePresignedUrl("b", "k", inOneHour()).toString())
-                .contains("AKIAREGIONTESTKEY");
+        assertThat(client.serviceClientConfiguration().region()).isEqualTo(Region.EU_WEST_1);
+        assertThat(client.serviceClientConfiguration().endpointOverride()).isEmpty();
+        URL url = client.utilities().getUrl(b -> b.bucket("b").key("k"));
+        assertThat(url.getHost()).contains("eu-west-1.amazonaws.com");
+        assertThat(resolvedAccessKey(client)).isEqualTo("AKIAREGIONTESTKEY");
     }
 
     @Test
@@ -67,8 +72,17 @@ class S3ConfigTest {
         S3Properties props = new S3Properties();
         props.setRegion("us-east-1");
 
-        AmazonS3 client = config.amazonS3(props);
+        S3Client client = config.s3Client(props);
 
-        assertThat(client.getRegionName()).isEqualTo("us-east-1");
+        assertThat(client.serviceClientConfiguration().region()).isEqualTo(Region.US_EAST_1);
+        assertThat(client.serviceClientConfiguration().credentialsProvider())
+                .isNotInstanceOf(StaticCredentialsProvider.class);
+    }
+
+    private static String resolvedAccessKey(S3Client client) {
+        IdentityProvider<? extends AwsCredentialsIdentity> provider =
+                client.serviceClientConfiguration().credentialsProvider();
+        assertThat(provider).isInstanceOf(StaticCredentialsProvider.class);
+        return ((AwsCredentialsProvider) provider).resolveCredentials().accessKeyId();
     }
 }

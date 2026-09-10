@@ -1,24 +1,30 @@
 package com.example.documentservice.service;
 
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.ObjectMetadata;
-import com.amazonaws.services.s3.model.S3Object;
 import com.example.documentservice.config.S3Properties;
 import com.example.documentservice.exception.StorageException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import software.amazon.awssdk.core.ResponseBytes;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
+import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -26,7 +32,7 @@ class StorageServiceTest {
 
     private static final String BUCKET = "documents";
 
-    private final AmazonS3 s3 = mock(AmazonS3.class);
+    private final S3Client s3 = mock(S3Client.class);
     private StorageService storage;
 
     @BeforeEach
@@ -38,25 +44,28 @@ class StorageServiceTest {
 
     @Test
     void ensureBucketCreatesBucketWhenMissing() {
-        when(s3.doesBucketExistV2(BUCKET)).thenReturn(false);
+        when(s3.headBucket(any(HeadBucketRequest.class)))
+                .thenThrow(NoSuchBucketException.builder().message("missing").build());
 
         storage.ensureBucket();
 
-        verify(s3).createBucket(BUCKET);
+        ArgumentCaptor<CreateBucketRequest> created = ArgumentCaptor.forClass(CreateBucketRequest.class);
+        verify(s3).createBucket(created.capture());
+        assertThat(created.getValue().bucket()).isEqualTo(BUCKET);
     }
 
     @Test
     void ensureBucketSkipsCreationWhenPresent() {
-        when(s3.doesBucketExistV2(BUCKET)).thenReturn(true);
+        when(s3.headBucket(any(HeadBucketRequest.class))).thenReturn(HeadBucketResponse.builder().build());
 
         storage.ensureBucket();
 
-        verify(s3, never()).createBucket(BUCKET);
+        verify(s3, never()).createBucket(any(CreateBucketRequest.class));
     }
 
     @Test
     void ensureBucketWrapsFailures() {
-        when(s3.doesBucketExistV2(BUCKET)).thenThrow(new RuntimeException("no s3"));
+        when(s3.headBucket(any(HeadBucketRequest.class))).thenThrow(new RuntimeException("no s3"));
 
         assertThatThrownBy(() -> storage.ensureBucket())
                 .isInstanceOf(StorageException.class)
@@ -70,10 +79,13 @@ class StorageServiceTest {
 
         storage.put("key/a.txt", data, "text/plain");
 
-        ArgumentCaptor<ObjectMetadata> meta = ArgumentCaptor.forClass(ObjectMetadata.class);
-        verify(s3).putObject(eq(BUCKET), eq("key/a.txt"), any(InputStream.class), meta.capture());
-        assertThat(meta.getValue().getContentLength()).isEqualTo(5L);
-        assertThat(meta.getValue().getContentType()).isEqualTo("text/plain");
+        ArgumentCaptor<PutObjectRequest> request = ArgumentCaptor.forClass(PutObjectRequest.class);
+        ArgumentCaptor<RequestBody> body = ArgumentCaptor.forClass(RequestBody.class);
+        verify(s3).putObject(request.capture(), body.capture());
+        assertThat(request.getValue().bucket()).isEqualTo(BUCKET);
+        assertThat(request.getValue().key()).isEqualTo("key/a.txt");
+        assertThat(request.getValue().contentType()).isEqualTo("text/plain");
+        assertThat(body.getValue().optionalContentLength()).contains(5L);
     }
 
     @Test
@@ -81,15 +93,14 @@ class StorageServiceTest {
         storage.put("k1", new byte[] {1, 2}, null);
         storage.put("k2", new byte[] {1, 2}, "   ");
 
-        ArgumentCaptor<ObjectMetadata> meta = ArgumentCaptor.forClass(ObjectMetadata.class);
-        verify(s3, org.mockito.Mockito.times(2))
-                .putObject(eq(BUCKET), any(), any(InputStream.class), meta.capture());
-        assertThat(meta.getAllValues()).allSatisfy(m -> assertThat(m.getContentType()).isNull());
+        ArgumentCaptor<PutObjectRequest> request = ArgumentCaptor.forClass(PutObjectRequest.class);
+        verify(s3, times(2)).putObject(request.capture(), any(RequestBody.class));
+        assertThat(request.getAllValues()).allSatisfy(r -> assertThat(r.contentType()).isNull());
     }
 
     @Test
     void putWrapsFailures() {
-        when(s3.putObject(eq(BUCKET), eq("k"), any(InputStream.class), any()))
+        when(s3.putObject(any(PutObjectRequest.class), any(RequestBody.class)))
                 .thenThrow(new RuntimeException("write failed"));
 
         assertThatThrownBy(() -> storage.put("k", new byte[] {0}, "text/plain"))
@@ -98,10 +109,9 @@ class StorageServiceTest {
     }
 
     @Test
-    void getReturnsObjectBytes() throws Exception {
-        S3Object object = new S3Object();
-        object.setObjectContent(new ByteArrayInputStream("payload".getBytes(StandardCharsets.UTF_8)));
-        when(s3.getObject(BUCKET, "k")).thenReturn(object);
+    void getReturnsObjectBytes() {
+        when(s3.getObjectAsBytes(any(GetObjectRequest.class))).thenReturn(ResponseBytes.fromByteArray(
+                GetObjectResponse.builder().build(), "payload".getBytes(StandardCharsets.UTF_8)));
 
         byte[] bytes = storage.get("k");
 
@@ -110,7 +120,7 @@ class StorageServiceTest {
 
     @Test
     void getWrapsFailures() {
-        when(s3.getObject(BUCKET, "k")).thenThrow(new RuntimeException("read failed"));
+        when(s3.getObjectAsBytes(any(GetObjectRequest.class))).thenThrow(new RuntimeException("read failed"));
 
         assertThatThrownBy(() -> storage.get("k"))
                 .isInstanceOf(StorageException.class)
@@ -121,13 +131,15 @@ class StorageServiceTest {
     void deleteRemovesObject() {
         storage.delete("k");
 
-        verify(s3).deleteObject(BUCKET, "k");
+        ArgumentCaptor<DeleteObjectRequest> request = ArgumentCaptor.forClass(DeleteObjectRequest.class);
+        verify(s3).deleteObject(request.capture());
+        assertThat(request.getValue().bucket()).isEqualTo(BUCKET);
+        assertThat(request.getValue().key()).isEqualTo("k");
     }
 
     @Test
     void deleteWrapsFailures() {
-        org.mockito.Mockito.doThrow(new RuntimeException("delete failed"))
-                .when(s3).deleteObject(BUCKET, "k");
+        when(s3.deleteObject(any(DeleteObjectRequest.class))).thenThrow(new RuntimeException("delete failed"));
 
         assertThatThrownBy(() -> storage.delete("k"))
                 .isInstanceOf(StorageException.class)

@@ -1,34 +1,36 @@
 package com.example.documentservice.config;
 
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.client.builder.AwsClientBuilder;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3ClientBuilder;
+import software.amazon.awssdk.services.s3.S3Configuration;
+
+import java.net.URI;
 
 /**
- * Builds the AWS SDK v1 {@link AmazonS3} client from {@link S3Properties}.
+ * Builds the AWS SDK v2 {@link S3Client} from {@link S3Properties}.
  */
 @Configuration
 public class S3Config {
 
     @Bean
-    public AmazonS3 amazonS3(S3Properties props) {
-        AmazonS3ClientBuilder builder = AmazonS3ClientBuilder.standard();
+    public S3Client s3Client(S3Properties props) {
+        S3ClientBuilder builder = S3Client.builder().region(Region.of(props.getRegion()));
 
         if (props.hasCustomEndpoint()) {
-            builder.withEndpointConfiguration(
-                    new AwsClientBuilder.EndpointConfiguration(props.getEndpoint(), props.getRegion()));
-            builder.withPathStyleAccessEnabled(true);
-        } else {
-            builder.withRegion(props.getRegion());
+            builder.endpointOverride(URI.create(props.getEndpoint()))
+                    .serviceConfiguration(S3Configuration.builder()
+                            .pathStyleAccessEnabled(true)
+                            .build());
         }
 
         if (props.hasStaticCredentials()) {
-            builder.withCredentials(new AWSStaticCredentialsProvider(
-                    new BasicAWSCredentials(props.getAccessKey(), props.getSecretKey())));
+            builder.credentialsProvider(StaticCredentialsProvider.create(
+                    AwsBasicCredentials.create(props.getAccessKey(), props.getSecretKey())));
         }
 
         return builder.build();

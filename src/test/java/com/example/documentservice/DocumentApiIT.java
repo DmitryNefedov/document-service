@@ -5,9 +5,10 @@ import com.example.documentservice.repository.DocumentRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.ByteArrayResource;
@@ -30,6 +31,7 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -55,6 +57,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * bucket after every test, so the tests stay independent of one another.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureTestRestTemplate
 @Testcontainers
 class DocumentApiIT {
 
@@ -62,14 +65,14 @@ class DocumentApiIT {
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>(DockerImageName.parse("postgres:15-alpine"))
+            new PostgreSQLContainer<>(DockerImageName.parse("postgres:17-alpine"))
                     .withDatabaseName("documents")
                     .withUsername("documents")
                     .withPassword("documents");
 
     @Container
     static final GenericContainer<?> ACTIVEMQ =
-            new GenericContainer<>(DockerImageName.parse("apache/activemq-classic:5.18.6"))
+            new GenericContainer<>(DockerImageName.parse("apache/activemq-classic:6.1.7"))
                     .withEnv("ACTIVEMQ_CONNECTION_USER", "admin")
                     .withEnv("ACTIVEMQ_CONNECTION_PASSWORD", "admin")
                     .withExposedPorts(61616)
@@ -77,7 +80,7 @@ class DocumentApiIT {
 
     @Container
     static final LocalStackContainer LOCALSTACK =
-            new LocalStackContainer(DockerImageName.parse("localstack/localstack:2.3.2"))
+            new LocalStackContainer(DockerImageName.parse("localstack/localstack:4.9.1"))
                     .withServices(LocalStackContainer.Service.S3);
 
     @DynamicPropertySource
@@ -109,13 +112,13 @@ class DocumentApiIT {
     private DocumentRepository documentRepository;
 
     @Autowired
-    private com.amazonaws.services.s3.AmazonS3 s3;
+    private S3Client s3;
 
     @AfterEach
     void cleanUp() {
         documentRepository.deleteAll();
-        s3.listObjects(BUCKET).getObjectSummaries()
-                .forEach(o -> s3.deleteObject(BUCKET, o.getKey()));
+        s3.listObjectsV2(b -> b.bucket(BUCKET)).contents()
+                .forEach(o -> s3.deleteObject(d -> d.bucket(BUCKET).key(o.key())));
         events.drain();
     }
 

@@ -1,24 +1,24 @@
 package com.example.documentservice.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-import org.springframework.jms.support.converter.MappingJackson2MessageConverter;
+import org.springframework.jms.support.converter.JacksonJsonMessageConverter;
 import org.springframework.jms.support.converter.MessageConverter;
 import org.springframework.jms.support.converter.MessageType;
 import org.springframework.test.util.ReflectionTestUtils;
+import tools.jackson.databind.json.JsonMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class JmsConfigTest {
 
     @Test
-    void converterIsJsonTextAndReusesProvidedObjectMapper() {
-        ObjectMapper objectMapper = new ObjectMapper();
+    void converterIsJsonTextAndReusesProvidedJsonMapper() {
+        JsonMapper jsonMapper = JsonMapper.builder().build();
 
-        MessageConverter converter = new JmsConfig().jacksonJmsMessageConverter(objectMapper);
+        MessageConverter converter = new JmsConfig().jacksonJmsMessageConverter(jsonMapper);
 
-        assertThat(converter).isInstanceOf(MappingJackson2MessageConverter.class);
-        assertThat(ReflectionTestUtils.getField(converter, "objectMapper")).isSameAs(objectMapper);
+        assertThat(converter).isInstanceOf(JacksonJsonMessageConverter.class);
+        assertThat(ReflectionTestUtils.getField(converter, "mapper")).isSameAs(jsonMapper);
         assertThat(ReflectionTestUtils.getField(converter, "targetType")).isEqualTo(MessageType.TEXT);
         assertThat(ReflectionTestUtils.getField(converter, "typeIdPropertyName")).isEqualTo("_type");
     }

@@ -1,22 +1,26 @@
 plugins {
-    id 'org.springframework.boot' version '2.7.18'
-    id 'io.spring.dependency-management' version '1.0.15.RELEASE'
     id 'java'
     id 'jacoco'
-    id 'info.solidsoft.pitest' version '1.15.0'
+    id 'org.springframework.boot' version '4.1.1'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'info.solidsoft.pitest' version '1.19.0'
 }
 
 group = 'com.example'
 version = '0.0.1-SNAPSHOT'
-sourceCompatibility = '11'
-targetCompatibility = '11'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
 
 repositories {
     mavenCentral()
 }
 
 ext {
-    awsSdkVersion = '1.12.772'
+    awsSdkVersion = '2.54.15'
 }
 
 dependencies {
@@ -25,21 +29,28 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-activemq'
 
-    // AWS Java SDK v1
-    implementation "com.amazonaws:aws-java-sdk-s3:${awsSdkVersion}"
+    // AWS SDK for Java v2 (v1 reached end-of-life 2025-12-31).
+    implementation platform("software.amazon.awssdk:bom:${awsSdkVersion}")
+    implementation 'software.amazon.awssdk:s3'
 
     runtimeOnly 'org.postgresql:postgresql'
 
-    // Unit tests: JUnit 5 + Mockito (mockito-inline for static mocking of the
-    // SpringApplication bootstrap). Integration tests (*IT): Testcontainers for
-    // PostgreSQL, ActiveMQ and S3 (LocalStack) - see integrationTest task below.
+    // Unit tests: JUnit 5 + Mockito (inline mock maker is the default in Mockito 5).
+    // Integration tests (*IT): Testcontainers for PostgreSQL, ActiveMQ and S3
+    // (LocalStack) - see the integrationTest task below.
+    //
+    // Spring Boot 4 modularised the test infrastructure: each technology-specific
+    // test slice now ships in its own `spring-boot-starter-<tech>-test` POM (all of
+    // which pull in `spring-boot-starter-test` transitively).
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testImplementation 'org.mockito:mockito-inline:4.5.1'
-    testImplementation platform('org.testcontainers:testcontainers-bom:1.21.3')
-    testImplementation 'org.testcontainers:junit-jupiter'
-    testImplementation 'org.testcontainers:postgresql'
-    testImplementation 'org.testcontainers:localstack'
-    testImplementation "com.amazonaws:aws-java-sdk-core:${awsSdkVersion}"
+    testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
+    // TestRestTemplate now lives in its own module and is no longer provided by
+    // @SpringBootTest automatically (see DocumentApiIT's @AutoConfigureTestRestTemplate).
+    testImplementation 'org.springframework.boot:spring-boot-resttestclient'
+    testRuntimeOnly 'org.springframework.boot:spring-boot-restclient'
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    testImplementation 'org.testcontainers:testcontainers-postgresql'
+    testImplementation 'org.testcontainers:testcontainers-localstack'
 }
 
 // Integration tests are any *IT class; unit tests are everything else. They share
@@ -60,6 +71,8 @@ tasks.named('test') {
 tasks.register('integrationTest', Test) {
     description = 'Runs *IT integration tests against Testcontainers-managed infrastructure.'
     group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform()
     include integrationTestPattern
     shouldRunAfter tasks.named('test')
@@ -75,37 +88,8 @@ tasks.named('check') {
     dependsOn 'integrationTest', 'jacocoTestCoverageVerification', 'pitest'
 }
 
-// Mutation testing (PIT). Following Robert C. Martin's guidance in
-// "Clean Craftsmanship": line coverage only proves code ran, so we also require
-// that the unit tests actually *detect* deliberate faults - every injected mutant
-// must be killed. The build fails below 100% mutation coverage.
-pitest {
-    pitestVersion = '1.15.0'
-    junit5PluginVersion = '1.2.1'
-
-    // Mutate production code only; drive it with the fast unit tests (*Test),
-    // never the Docker-backed integration tests (*IT).
-    targetClasses = ['com.example.documentservice.*']
-    targetTests = ['com.example.documentservice.*Test']
-    excludedTestClasses = ['com.example.documentservice.*IT']
-
-    // A thorough mutation operator set (DEFAULTS plus return-value, negation,
-    // increment, conditional-boundary and void-call-removal families).
-    mutators = ['STRONGER']
-
-    threads = Runtime.runtime.availableProcessors()
-    timestampedReports = false
-    outputFormats = ['HTML', 'XML']
-    exportLineCoverage = true
-
-    // "Aim for 100%." - fail the build on any surviving mutant or coverage gap.
-    mutationThreshold = 100
-    coverageThreshold = 100
-    testStrengthThreshold = 100
-}
-
 jacoco {
-    toolVersion = '0.8.11'
+    toolVersion = '0.8.15'
 }
 
 tasks.named('jacocoTestReport') {
@@ -128,4 +112,27 @@ tasks.named('jacocoTestCoverageVerification') {
             limit { counter = 'CLASS'; minimum = 1.0 }
         }
     }
+}
+
+// Mutation testing (PIT). Following Robert C. Martin's guidance in
+// "Clean Craftsmanship": line coverage only proves code ran, so we also require
+// that the unit tests actually *detect* deliberate faults - every injected mutant
+// must be killed. The build fails below 100% mutation coverage.
+pitest {
+    pitestVersion = '1.30.0'
+    junit5PluginVersion = '1.2.3'
+
+    targetClasses = ['com.example.documentservice.*']
+    targetTests = ['com.example.documentservice.*Test']
+    excludedTestClasses = ['com.example.documentservice.*IT']
+
+    mutators = ['STRONGER']
+    threads = Runtime.runtime.availableProcessors()
+    timestampedReports = false
+    outputFormats = ['HTML', 'XML']
+    exportLineCoverage = true
+
+    mutationThreshold = 100
+    coverageThreshold = 100
+    testStrengthThreshold = 100
 }
